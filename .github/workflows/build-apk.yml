@@ -66,7 +66,28 @@ jobs:
           cargo install cargo-ndk --version 3.5.4 --locked
       - name: Compilar o APK
         working-directory: ${{ env.SRC }}
-        run: python packaging/android/build_apk.py --abi "${{ matrix.abi }}" --profile quick --preview
+        run: |
+          # Tudo vai para um arquivo de log; na tela aparece so o erro.
+          set +e
+          python packaging/android/build_apk.py --abi "${{ matrix.abi }}" --profile quick --preview > "$RUNNER_TEMP/build.log" 2>&1
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ]; then
+            awk '/^error/{p=1} p{print} /^$/{p=0}' "$RUNNER_TEMP/build.log" | head -n 60 > "$RUNNER_TEMP/erros.txt"
+            [ -s "$RUNNER_TEMP/erros.txt" ] || tail -n 25 "$RUNNER_TEMP/build.log" > "$RUNNER_TEMP/erros.txt"
+            echo "===== ERRO AO COMPILAR O APK ====="
+            cat "$RUNNER_TEMP/erros.txt"
+            { echo "## Erro ao compilar o APK (${{ matrix.abi }})"; echo '```'; cat "$RUNNER_TEMP/erros.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            exit "$code"
+          fi
+          echo "APK compilado sem erros."
+      - name: Guardar o log completo (so se falhar)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Log-completo-${{ matrix.abi }}
+          path: ${{ runner.temp }}/build.log
+          retention-days: 7
       - name: Nomear o APK
         working-directory: ${{ env.SRC }}/target/android
         run: |
@@ -78,4 +99,3 @@ jobs:
           path: ${{ env.SRC }}/target/android/Cat-Launcher-*.apk
           if-no-files-found: error
           retention-days: 30
-          
